@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <!--
+    Glucose Prediction + Tracking (Offline-First)
+    - No backend. Everything is localStorage.
+    - app.js contains all logic, including:
+        * logging + editing
+        * summary KPIs
+        * prediction (food sugar model)
+        * synthetic test set generator + backtest
+  -->
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Glucose Log + Predictor (Local)</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+
+<body>
+  <header class="topbar">
+    <div class="topbar__title">
+      <div class="appname">Glucose Log + Predictor</div>
+      <div class="subtitle">Offline-first • local-only data • decision support (non-diagnostic)</div>
+    </div>
+
+    <div class="topbar__profile">
+      <label class="label" for="patientName">Patient</label>
+      <input id="patientName" class="input" type="text" placeholder="e.g., Dad / Initials" />
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="grid">
+      <!-- LEFT: Logger -->
+      <div class="card">
+        <div class="card__header">
+          <h2 class="card__title">Log Reading</h2>
+          <div class="pill" id="modePill">Mode: Add</div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label class="label" for="glucose">Glucose (mg/dL)</label>
+            <input id="glucose" class="input" type="number" inputmode="numeric" min="20" max="600" placeholder="e.g., 112" />
+          </div>
+          <div>
+            <label class="label" for="context">Context</label>
+            <select id="context" class="input">
+              <option value="Fasting">Fasting</option>
+              <option value="Pre-meal">Pre-meal</option>
+              <option value="1-hr post-meal">1-hr post-meal</option>
+              <option value="2-hr post-meal">2-hr post-meal</option>
+              <option value="Bedtime">Bedtime</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+        </div>
+
+        <label class="label" for="dt">Date & time</label>
+        <input id="dt" class="input" type="datetime-local" />
+
+        <label class="label" for="notes">Notes (optional)</label>
+        <textarea id="notes" class="input" rows="2" placeholder="meal, exercise, symptoms..."></textarea>
+
+        <input id="editingId" type="hidden" />
+
+        <div class="actions">
+          <button id="saveBtn" class="btn btn--primary" type="button">Add</button>
+          <button id="cancelEditBtn" class="btn" type="button" disabled>Cancel Edit</button>
+        </div>
+
+        <div class="actions">
+          <button id="exportBtn" class="btn" type="button">Export CSV</button>
+          <button id="reportBtn" class="btn" type="button">Print Report (PDF)</button>
+          <button id="clearBtn" class="btn btn--danger" type="button">Clear All</button>
+        </div>
+
+        <div class="footnote">
+          <strong>Important:</strong> This is a personal tracking / educational tool and is <strong>not medical advice</strong>.
+          Do not dose medication based on predictions. If you feel unwell or readings are very low/high, follow a clinician’s plan.
+        </div>
+      </div>
+
+      <!-- RIGHT: Summary + Prediction -->
+      <div class="card">
+        <div class="card__header">
+          <h2 class="card__title">Summary + Prediction</h2>
+          <div class="pill" id="storagePill">Storage: localStorage</div>
+        </div>
+
+        <!-- Filters -->
+        <div class="row3">
+          <div>
+            <label class="label" for="windowDays">Window</label>
+            <select id="windowDays" class="input">
+              <option value="7">Last 7 days</option>
+              <option value="14" selected>Last 14 days</option>
+              <option value="30">Last 30 days</option>
+              <option value="365">Last 12 months</option>
+              <option value="99999">All time</option>
+            </select>
+          </div>
+          <div>
+            <label class="label" for="targetLow">Target low</label>
+            <input id="targetLow" class="input" type="number" min="40" max="150" value="70" />
+          </div>
+          <div>
+            <label class="label" for="targetHigh">Target high</label>
+            <input id="targetHigh" class="input" type="number" min="120" max="300" value="180" />
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label class="label" for="contextFilter">Context filter</label>
+            <select id="contextFilter" class="input">
+              <option value="ALL" selected>All contexts</option>
+              <option value="Fasting">Fasting</option>
+              <option value="Pre-meal">Pre-meal</option>
+              <option value="1-hr post-meal">1-hr post-meal</option>
+              <option value="2-hr post-meal">2-hr post-meal</option>
+              <option value="Bedtime">Bedtime</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div>
+            <label class="label" for="sortOrder">Sort</label>
+            <select id="sortOrder" class="input">
+              <option value="DESC" selected>Newest first</option>
+              <option value="ASC">Oldest first</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- KPI tiles -->
+        <div class="kpis">
+          <div class="kpi">
+            <div class="kpi__label">Time in Range</div>
+            <div class="kpi__value" id="kpiTir">—</div>
+            <div class="kpi__sub" id="kpiTirSub">—</div>
+          </div>
+
+          <div class="kpi">
+            <div class="kpi__label">Average</div>
+            <div class="kpi__value" id="kpiAvg">—</div>
+            <div class="kpi__sub" id="kpiAvgSub">—</div>
+          </div>
+
+          <div class="kpi">
+            <div class="kpi__label">Variability</div>
+            <div class="kpi__value" id="kpiStd">—</div>
+            <div class="kpi__sub" id="kpiStdSub">—</div>
+          </div>
+
+          <div class="kpi">
+            <div class="kpi__label">Median</div>
+            <div class="kpi__value" id="kpiMedian">—</div>
+            <div class="kpi__sub" id="kpiMedianSub">—</div>
+          </div>
+
+          <div class="kpi">
+            <div class="kpi__label">Fasting Avg</div>
+            <div class="kpi__value" id="kpiFastingAvg">—</div>
+            <div class="kpi__sub" id="kpiFastingSub">—</div>
+          </div>
+
+          <div class="kpi">
+            <div class="kpi__label">Events</div>
+            <div class="kpi__value" id="kpiEvents">—</div>
+            <div class="kpi__sub" id="kpiEventsSub">—</div>
+          </div>
+        </div>
+
+        <!-- Prediction panel -->
+        <div class="divider"></div>
+        <h3 class="sectionTitle">Food Sugar Prediction</h3>
+
+        <div class="row3">
+          <div>
+            <label class="label" for="predCurrent">Current glucose</label>
+            <input id="predCurrent" class="input" type="number" min="40" max="600" placeholder="mg/dL" />
+          </div>
+          <div>
+            <label class="label" for="predSugar">Sugar (g)</label>
+            <input id="predSugar" class="input" type="number" min="0" max="300" placeholder="grams" />
+          </div>
+          <div>
+            <label class="label" for="predHorizon">Horizon</label>
+            <select id="predHorizon" class="input">
+              <option value="60">60 min</option>
+              <option value="120" selected>120 min</option>
+              <option value="180">180 min</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row3">
+          <div>
+            <label class="label" for="mgdlPerGram">Impact (mg/dL per g)</label>
+            <input id="mgdlPerGram" class="input" type="number" step="0.1" min="0" max="10" value="1.6" />
+          </div>
+          <div>
+            <label class="label" for="absorbMin">Absorption peak (min)</label>
+            <input id="absorbMin" class="input" type="number" min="15" max="180" value="45" />
+          </div>
+          <div>
+            <label class="label" for="activityFactor">Activity factor</label>
+            <select id="activityFactor" class="input">
+              <option value="1.0" selected>Normal (1.0x)</option>
+              <option value="0.85">More active (0.85x)</option>
+              <option value="1.15">Less active (1.15x)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="predictBtn" class="btn btn--primary" type="button">Predict Curve</button>
+          <button id="useLastBtn" class="btn" type="button">Use last logged as current</button>
+        </div>
+
+        <div class="muted" id="predText">Enter inputs and click Predict.</div>
+        <canvas id="predChart" width="980" height="260" class="chart"></canvas>
+
+        <!-- Synthetic test + backtest -->
+        <div class="divider"></div>
+        <h3 class="sectionTitle">Test Set + Backtest</h3>
+
+        <div class="row3">
+          <div>
+            <label class="label" for="synDays">Synthetic days</label>
+            <input id="synDays" class="input" type="number" min="7" max="180" value="90" />
+          </div>
+          <div>
+            <label class="label" for="synPoints">Approx points</label>
+            <input id="synPoints" class="input" type="number" min="100" max="5000" value="500" />
+          </div>
+          <div>
+            <label class="label" for="btHorizon">Backtest horizon</label>
+            <select id="btHorizon" class="input">
+              <option value="30">30 min</option>
+              <option value="45" selected>45 min</option>
+              <option value="60">60 min</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="genTestBtn" class="btn" type="button">Generate Test Set</button>
+          <button id="runBacktestBtn" class="btn btn--primary" type="button">Run Backtest</button>
+        </div>
+
+        <pre class="codebox" id="backtestOut">No backtest yet.</pre>
+      </div>
+    </section>
+
+    <!-- History table -->
+    <section class="card card--full">
+      <div class="card__header">
+        <h2 class="card__title">History</h2>
+        <div class="pill" id="undoPill" hidden>Undo available</div>
+      </div>
+
+      <div class="muted">Click a row to <strong>edit</strong>. Delete has <strong>undo</strong>.</div>
+
+      <div class="tableWrap">
+        <table class="table" aria-label="Glucose readings table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Value</th>
+              <th>Status</th>
+              <th>Context</th>
+              <th>Notes</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="actions">
+        <button id="undoBtn" class="btn" type="button" disabled>Undo Delete</button>
+      </div>
+    </section>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>
