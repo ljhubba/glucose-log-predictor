@@ -1,0 +1,21 @@
+.divider { height: 1px; background: var(--border); margin: 12px 0; }
+
+.sectionTitle {
+  margin: 10px 0 6px;
+  font-size: 13px;
+  color: var(--muted);
+  letter-spacing: .2px;
+  text-transform: uppercase;
+}
+
+.codebox {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(127,127,127,0.06);
+  overflow-x: auto;
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+}
